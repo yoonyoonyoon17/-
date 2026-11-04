@@ -70,9 +70,13 @@ def refresh_kakao_token(token_data):
 def _send_kakao_chunk(jobs_chunk, chunk_title, footer_text, token_data, dashboard_url):
     """
     지정된 공고 묶음(1~5위 또는 6~10위)을 카카오톡 메시지로 발송하는 내부 헬퍼
+    (메시지 최상단에 1위~10위 전체 웹대시보드 바로가기 하이퍼링크 배치)
     """
     access_token = token_data.get("access_token")
     lines = []
+    lines.append("🌐 [1위~10위 전체 대시보드 바로가기]")
+    lines.append(f"👉 {dashboard_url}")
+    lines.append("-" * 24)
     lines.append("📍 인천역 30분권 / 최소연봉 5,100만원+ 엄선")
     lines.append("🚜 지게차·건설기계 우대 / 현장단순노무 배제")
     lines.append("=" * 24)
