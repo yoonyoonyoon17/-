@@ -1,0 +1,32 @@
+name: Daily Job Recommendation to KakaoTalk
+on:
+  schedule:
+    # 매일 한국시간 오전 08:00 (UTC 기준 전날 23:00) 자동 실행
+    - cron: '0 23 * * *'
+  workflow_dispatch: # 언제든 GitHub 웹에서 버튼 눌러 즉시 실행 가능
+jobs:
+  run-recommendation:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+      - name: Python 환경 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 필수 패키지 설치
+        run: |
+          pip install requests beautifulsoup4 jinja2 schedule
+      - name: 채용공고 탐색 및 카카오톡 전송
+        run: |
+          python run.py --no-browser
+      - name: GitHub Pages 웹 대시보드 자동 배포
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .
+          destination_dir: .
