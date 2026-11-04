@@ -67,34 +67,17 @@ def refresh_kakao_token(token_data):
         print(f"[카카오 토큰 갱신 예외] {e}")
         return None
 
-def send_kakao_recommendation_message(top_jobs, web_dashboard_url=""):
+def _send_kakao_chunk(jobs_chunk, chunk_title, footer_text, token_data, dashboard_url):
     """
-    카카오톡 '나에게 보내기' API로 오늘의 추천 포지션 요약과 각 공고별 다이렉트 링크 전송
-    (모바일/PC 카카오톡 모두에서 클릭 가능한 파란색 하이퍼링크가 활성화되도록 본문 구성)
+    지정된 공고 묶음(1~5위 또는 6~10위)을 카카오톡 메시지로 발송하는 내부 헬퍼
     """
-    token_data = load_kakao_tokens()
-    if not token_data:
-        print("[카카오톡 알림 안내] 카카오 설정(kakao_config.json)이 없습니다.")
-        return False
-
     access_token = token_data.get("access_token")
-    if not access_token:
-        token_data = refresh_kakao_token(token_data)
-        if not token_data:
-            return False
-        access_token = token_data.get("access_token")
-
-    # 1. 메시지 본문 구성
-    now_str = datetime.now().strftime("%Y년 %m월 %d일")
-    title = f"📢 [조윤호 님 채용공고] {now_str} TOP 추천 포지션"
-    
     lines = []
-    lines.append(f"📍 인천역 30분권 / 최소연봉 5,100만원+ 엄선")
-    lines.append(f"⛔ 보세사 등 미보유 자격요건 공고 배제 완료")
+    lines.append("📍 인천역 30분권 / 최소연봉 5,100만원+ 엄선")
+    lines.append("🚜 지게차·건설기계 우대 / 현장단순노무 배제")
     lines.append("=" * 24)
 
-    # 상위 5개 포지션에 대해 제목, 통근/연봉, 그리고 "직접 클릭 가능한 실제 URL" 배치
-    for j in top_jobs[:5]:
+    for j in jobs_chunk:
         rank = j.get("rank", 1)
         score = j.get("total_score", 0)
         source = j.get("source", "사람인")
@@ -115,15 +98,12 @@ def send_kakao_recommendation_message(top_jobs, web_dashboard_url=""):
             lines.append(f"  👉 바로가기: {url}")
 
     lines.append("\n" + "=" * 24)
-    lines.append(f"※ 6~10위 전체 상세는 PC 대시보드(recommendations.html)에서 확인하실 수 있습니다.")
+    lines.append(footer_text)
     description = "\n".join(lines)
-
-    # 2. 스마트폰/PC에서 열릴 GitHub Pages 대시보드 URL 지정
-    dashboard_url = "https://yoonyoonyoon17.github.io/-/index.html"
 
     template_object = {
         "object_type": "text",
-        "text": f"{title}\n\n{description}",
+        "text": f"{chunk_title}\n\n{description}",
         "link": {
             "web_url": dashboard_url,
             "mobile_web_url": dashboard_url
@@ -140,7 +120,6 @@ def send_kakao_recommendation_message(top_jobs, web_dashboard_url=""):
         "template_object": json.dumps(template_object, ensure_ascii=False)
     }
 
-    # 3. 전송 시도
     res = requests.post(send_url, headers=headers, data=payload, timeout=10)
 
     # 토큰 만료(401) 시 자동 갱신 후 재전송
@@ -151,9 +130,49 @@ def send_kakao_recommendation_message(top_jobs, web_dashboard_url=""):
             headers["Authorization"] = f"Bearer {token_data['access_token']}"
             res = requests.post(send_url, headers=headers, data=payload, timeout=10)
 
-    if res.status_code == 200:
-        print("[카카오톡 발송 성공] 스마트폰 카카오톡으로 추천 공고와 클릭 가능한 링크가 전송되었습니다!")
+    return res.status_code == 200, token_data
+
+def send_kakao_recommendation_message(top_jobs, web_dashboard_url=""):
+    """
+    카카오톡 '나에게 보내기' API로 1위부터 10위까지 모든 추천 포지션을
+    글자 수 제한이나 잘림 없이 2회 분할(1~5위, 6~10위)로 완벽 전송
+    """
+    token_data = load_kakao_tokens()
+    if not token_data:
+        print("[카카오톡 알림 안내] 카카오 설정(kakao_config.json)이 없습니다.")
+        return False
+
+    access_token = token_data.get("access_token")
+    if not access_token:
+        token_data = refresh_kakao_token(token_data)
+        if not token_data:
+            return False
+
+    now_str = datetime.now().strftime("%Y년 %m월 %d일")
+    dashboard_url = "https://yoonyoonyoon17.github.io/-/index.html"
+
+    has_more = len(top_jobs) > 5
+
+    # 1. 1~5위 메시지 전송
+    chunk1 = top_jobs[:5]
+    title1 = f"📢 [조윤호 님 채용공고] {now_str} TOP 1~5위" if has_more else f"📢 [조윤호 님 채용공고] {now_str} TOP 추천 포지션"
+    footer1 = "※ 이어지는 6~10위 공고는 바로 아래 메시지에서 확인하실 수 있습니다." if has_more else "※ 전체 상세 분석 및 이력서 공략 팁은 대시보드에서 제공됩니다."
+
+    ok1, token_data = _send_kakao_chunk(chunk1, title1, footer1, token_data, dashboard_url)
+
+    # 2. 6~10위 메시지 전송 (5개 초과 시 즉시 발송)
+    ok2 = True
+    if has_more:
+        import time
+        time.sleep(0.5)  # 카카오 순차 수신 보장
+        chunk2 = top_jobs[5:10]
+        title2 = f"📢 [조윤호 님 채용공고] {now_str} TOP 6~10위"
+        footer2 = "※ 전체 1~10위 상세 분석 및 이력서 공략 팁은 대시보드에서 제공됩니다."
+        ok2, token_data = _send_kakao_chunk(chunk2, title2, footer2, token_data, dashboard_url)
+
+    if ok1 and ok2:
+        print("[카카오톡 발송 성공] 1위부터 10위까지 전체 추천 공고(1~5위, 6~10위)가 카카오톡으로 완벽 전송되었습니다!")
         return True
     else:
-        print(f"[카카오톡 발송 실패] 코드: {res.status_code}, 응답: {res.text}")
-        return False
+        print(f"[카카오톡 발송 결과] 1~5위 성공: {ok1}, 6~10위 성공: {ok2}")
+        return ok1 or ok2

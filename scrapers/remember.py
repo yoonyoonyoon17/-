@@ -24,11 +24,12 @@ def fetch_remember_jobs(keyword, max_pages=1, per_page=30):
     seen_ids = set()
 
     for page in range(1, max_pages + 1):
+        keywords_list = keyword.split() if isinstance(keyword, str) else list(keyword)
         payload = {
             "page": page,
             "per": per_page,
             "search": {
-                "keyword": keyword
+                "keywords": keywords_list
             }
         }
 
